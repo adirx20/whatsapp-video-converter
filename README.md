@@ -89,9 +89,8 @@ src/
 
 ## 🧠 Author
 
-Made with 💚 by adirs 
-Follow updates or contribute: [Your GitHub/Twitter/etc.]
-
+Made with 💚 by adirs
+Follow updates or contribute: https://github.com/adirx20
 ---
 
 ## 📬 License
