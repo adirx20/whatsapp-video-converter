@@ -89,11 +89,25 @@ ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
         // get video information
         const videoInfo = await getVideoInfo(inputPath);
 
+        // set compression level according to video size
+        const inputSizeMB = videoInfo.size / (1024 * 1024);
+        console.log('[DEBUG] Input file size (MB):', inputSizeMB);
+
+        let compressionLevel;
+
+        if (inputSizeMB <= 10) {
+            compressionLevel = 'light';
+        } else if (inputSizeMB <= 30) {
+            compressionLevel = 'medium';
+        } else {
+            compressionLevel = 'heavy';
+        }
+
         // calculate dimensions while maintaining aspect ratio
         const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
 
         // process the video
-        await convertVideo(inputPath, outputPath, width, height);
+        await convertVideo(inputPath, outputPath, width, height, videoInfo.duration);
 
         return { success: true, outputPath };
     } catch (error) {
@@ -118,10 +132,18 @@ function getVideoInfo(filePath) {
                 return;
             }
 
+            const rawDuration = metadata.format.duration;
+
+            console.log('[DEBUG] Raw duration:', rawDuration);
+
+            const parsedDuration = rawDuration !== undefined ? Number(rawDuration) : null;
+
+            console.log('[DEBUG] Parsed duration:', parsedDuration);
+
             resolve({
                 width: videoStream.width,
                 height: videoStream.height,
-                duration: metadata.format.duration,
+                duration: isNaN(parsedDuration) ? 1 : parsedDuration,
                 size: metadata.format.size
             });
         });
@@ -146,23 +168,45 @@ function calculateDimensions(originalWidth, originalHeight) {
         width = Math.round(height * aspectRatio);
     }
 
-    return { width, height };
+    // return a number divisible by 2 (libx264 requirements)
+    const even = (n) => n % 2 === 0 ? n : n - 1;
+
+    return { width: even(width), height: even(height) };
+
+}
+
+// get output options
+function getOutputOptions(duration, width, height) {
+    const targetSizeMB = 16;
+    const targetSizeBytes = targetSizeMB * 1024 * 1024;
+    const safeDuration = Math.max(1, duration || 1);
+    const bitrate = Math.floor((targetSizeBytes * 8) / safeDuration / 1000);
+    const clampedBitrate = Math.max(300, Math.min(bitrate, 6000)); // stay in range
+
+    console.log('[DEBUG] Duration:', duration);
+
+    const options = [
+        '-c:v libx264',
+        '-preset veryfast',
+        `-b:v ${clampedBitrate}k`,
+        '-c:a aac',
+        '-b:a 128k',
+        `-vf scale=${width}:${height}`
+    ];
+
+    console.log('[OPTIONS]', options);
+    return options;
 }
 
 // convert video
-function convertVideo(inputPath, outputPath, width, height) {
+function convertVideo(inputPath, outputPath, width, height, duration) {
     return new Promise((resolve, reject) => {
-        console.log('[CONVERT] using inputPath:', inputPath);
+
+        const outputOpts = getOutputOptions(duration, width, height);
 
         ffmpeg(inputPath)
-            .outputOptions([
-                '-c:v libx264',                  // video codec
-                '-preset fast',                  // encoding speed/compression ratio
-                '-crf 23',                       // quality level (lower = better)
-                '-c:a aac',                      // audio codec
-                '-b:a 128k',                     // audio bitrate
-                `-vf scale=${width}:${height}`   // scale to calculated dimensions
-            ])
+            .addOption('-loglevel', 'verbose')
+            .outputOptions(outputOpts)
             .format('mp4')
             .on('start', () => {
                 mainWindow.webContents.send('conversion-start');
@@ -170,11 +214,17 @@ function convertVideo(inputPath, outputPath, width, height) {
             .on('progress', (progress) => {
                 mainWindow.webContents.send('conversion-progress', progress.percent);
             })
+            .on('stderr', (line) => {
+                console.log('[FFMPEG]', line);
+            })
             .on('end', () => {
                 resolve();
             })
             .on('error', (err) => {
-                reject(err);
+                console.error('[FFMPEG ERROR]', err.message);
+                console.error('[FFMPEG STACK]', err.stack);
+
+                reject(new Error(`Conversion failed: ${err.message}`));
             })
             .save(outputPath);
     });
