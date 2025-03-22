@@ -1,0 +1,41 @@
+.file-selector {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+.file-selector_label {
+    font-weight: 500;
+    color: #333;
+}
+
+.file-selector_content {
+    display: flex;
+    border: 1px solid #ddd;
+    border-radius: .25rem;
+    overflow: hidden;
+    background-color: white;
+}
+
+.file-selector_path {
+    flex: 1;
+    padding: .75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #666;
+}
+
+.file-selector_button {
+    background-color: #f0f0f0;
+    border: none;
+    border-left: 1px solid #ddd;
+    padding: .75rem 1rem;
+    cursor: pointer;
+    transition: background-color .2s;
+    font-weight: 500;
+}
+
+.file-selector-button:hover {
+    background-color: #e0e0e0;
+}
