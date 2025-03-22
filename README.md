@@ -89,7 +89,7 @@ src/
 
 ## 🧠 Author
 
-Made with ❤️ by [YOUR NAME]  
+Made with 💚 by adirs 
 Follow updates or contribute: [Your GitHub/Twitter/etc.]
 
 ---
