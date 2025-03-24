@@ -3,17 +3,14 @@ import './App.css';
 import { FileSelector } from './components/FileSelector/FileSelector';
 import { ProgressBar } from './components/ProgressBar/ProgressBar';
 import { ResultMessage } from './components/ResultMessage/ResultMessage';
-import path from 'path-browserify';
+import { DragDropZone } from './components/DragDropZone/DragDropZone';
 
 function App() {
-  const [inputPath, setInputPath] = useState('');
-  const [outputDir, setOutputDir] = useState(() => {
-    // default to downloads folder
-    return localStorage.getItem('lastOutputDir') || '';
-  });
+  const [inputPaths, setInputPaths] = useState([]);
+  const [outputDir, setOutputDir] = useState(() => localStorage.getItem('lastOutputDir') || '');
   const [converting, setConverting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState(null);
+  const [results, setResults] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -21,11 +18,8 @@ function App() {
     if (window.electron) {
       window.electron.onConversionStart(() => setProgress(0));
 
-      window.electron.onConversionProgress((event, percent) => {
-        setProgress(percent);
-      });
+      window.electron.onConversionProgress((event, percent) => setProgress(percent));
     }
-
     // cleanup event listeners
     return () => {
       if (window.electron) {
@@ -34,13 +28,18 @@ function App() {
     };
   }, []);
 
-  const handleSelectFile = async () => {
+  const handleSelectFiles = async () => {
     if (window.electron) {
-      const filePath = await window.electron.selectFile();
-      if (filePath) {
-        setInputPath(filePath);
+      const filePaths = await window.electron.selectFiles();
+      if (filePaths && filePaths.length) {
+        setInputPaths(filePaths);
       }
     }
+  };
+
+  const handleDropFiles = (files) => {
+    console.log('Files dropped:', files);
+    setInputPaths(files);
   };
 
   const handleSelectOutputDir = async () => {
@@ -55,21 +54,21 @@ function App() {
   };
 
   const handleConvert = async () => {
-    if (!inputPath || !outputDir) return;
+    if (!inputPaths.length || !outputDir) return;
 
     // reset states
-    setResult(null);
+    setResults([]);
     setError(null);
     setConverting(true);
 
     try {
       const result = await window.electron.processVideo({
-        inputPath,
+        inputPath: inputPaths,
         outputDir
       });
 
       if (result.success) {
-        setResult(result);
+        setResults(result);
       } else {
         setError(result.error);
       }
@@ -86,12 +85,18 @@ function App() {
         <h1>WhatsApp Video Converter</h1>
       </header>
       <main className='App-main'>
+
+        <DragDropZone
+          onFilesSelected={handleDropFiles}
+          resetAccepted={false}
+        />
+
         <FileSelector
           className='file-selector'
-          title='Input Video'
-          path={inputPath}
-          placeholder='Select a video file'
-          onClick={handleSelectFile}
+          title='Input Videos'
+          path={inputPaths.join(', ')}
+          placeholder='Select a video files'
+          onClick={handleSelectFiles}
         />
 
         <FileSelector
@@ -105,30 +110,39 @@ function App() {
         <button
           className='convert-button'
           onClick={handleConvert}
-          disabled={!inputPath || !outputDir || converting}
+          disabled={!inputPaths.length || !outputDir || converting}
         >
-          {converting ? 'Converting...' : 'Convert Video'}
+          {converting ? 'Converting...' : 'Convert Videos'}
         </button>
 
-        {converting && (
-          <ProgressBar progress={progress} />
-        )}
+        {converting && <ProgressBar progress={progress} />}
 
-        {result && !error && (
-          <ResultMessage
-            type='success'
-            title='Conversion Complete!'
-            message={`File saved to: ${result.outputPath}`}
-          />
-        )}
+        {
+          results.length > 0 &&
+          results.map((result, index) => (
+            <ResultMessage
+              key={index}
+              type={result.success ? 'success' : 'error'}
+              title={result.success ? 'Conversion Complete!' : 'Error'}
+              message={
+                result.success
+                  ? `File saved to: ${result.outputPath}`
+                  : result.error
+              }
+            />
+          ))
+        }
 
-        {error && (
-          <ResultMessage
-            type='error'
-            title='Error'
-            message={error}
-          />
-        )}
+        {
+          error && (
+            <ResultMessage
+              type='error'
+              title='Error'
+              message={error}
+            />
+          )
+        }
+
       </main>
     </div>
   );

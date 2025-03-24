@@ -57,14 +57,14 @@ app.on('activate', () => {
 // handle file selection
 ipcMain.handle('select-file', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
-        properties: ['openFile'],
+        properties: ['openFile', 'multiSelections'],
         filters: [
             { name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] }
         ]
     });
 
     if (canceled) return null;
-    return filePaths[0];
+    return filePaths;
 });
 
 // handle output directory selection
@@ -79,41 +79,87 @@ ipcMain.handle('select-output-dir', async () => {
 
 // process video
 ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
-    const fileName = path.basename(inputPath, path.extname(inputPath));
-    const outputPath = path.join(outputDir, `${fileName}_whatsapp.mp4`);
+    // Check if inputPath is an array to support batch conversion
+    if (Array.isArray(inputPath)) {
+        const results = [];
+        for (const singlePath of inputPath) {
+            const fileName = path.basename(singlePath, path.extname(singlePath));
+            const outputPath = path.join(outputDir, `${fileName}_whatsapp.mp4`);
 
-    console.log('[PROCESS] input:', inputPath);
-    console.log('[PROCESS] output:', outputPath);
+            console.log(`[PROCESS] input: ${singlePath}`);
+            console.log(`[PROCESS] output: ${outputPath}`);
 
-    try {
-        // get video information
-        const videoInfo = await getVideoInfo(inputPath);
+            try {
+                // Get video info for this file
+                const videoInfo = await getVideoInfo(singlePath);
+                // Calculate dimensions while maintaining aspect ratio
+                const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
 
-        // set compression level according to video size
-        const inputSizeMB = videoInfo.size / (1024 * 1024);
-        console.log('[DEBUG] Input file size (MB):', inputSizeMB);
-
-        let compressionLevel;
-
-        if (inputSizeMB <= 10) {
-            compressionLevel = 'light';
-        } else if (inputSizeMB <= 30) {
-            compressionLevel = 'medium';
-        } else {
-            compressionLevel = 'heavy';
+                await convertVideo(singlePath, outputPath, width, height, videoInfo.duration);
+                results.push({ success: true, outputPath });
+            } catch (error) {
+                results.push({ success: false, error: error.message });
+            }
         }
+        return results;
+    } else {
+        // Single file processing
+        const fileName = path.basename(inputPath, path.extname(inputPath));
+        const outputPath = path.join(outputDir, `${fileName}_whatsapp.mp4`);
 
-        // calculate dimensions while maintaining aspect ratio
-        const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
+        console.log('[PROCESS] input:', inputPath);
+        console.log('[PROCESS] output:', outputPath);
 
-        // process the video
-        await convertVideo(inputPath, outputPath, width, height, videoInfo.duration);
-
-        return { success: true, outputPath };
-    } catch (error) {
-        return { success: false, error: error.message };
+        try {
+            const videoInfo = await getVideoInfo(inputPath);
+            const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
+            await convertVideo(inputPath, outputPath, width, height, videoInfo.duration);
+            return { success: true, outputPath };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
     }
 });
+
+// OLD PROCESS VIDEO
+
+// // process video
+// ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
+//     const fileName = path.basename(inputPath, path.extname(inputPath));
+//     const outputPath = path.join(outputDir, `${fileName}_whatsapp.mp4`);
+
+//     console.log('[PROCESS] input:', inputPath);
+//     console.log('[PROCESS] output:', outputPath);
+
+//     try {
+//         // get video information
+//         const videoInfo = await getVideoInfo(inputPath);
+
+//         // set compression level according to video size
+//         const inputSizeMB = videoInfo.size / (1024 * 1024);
+//         console.log('[DEBUG] Input file size (MB):', inputSizeMB);
+
+//         let compressionLevel;
+
+//         if (inputSizeMB <= 10) {
+//             compressionLevel = 'light';
+//         } else if (inputSizeMB <= 30) {
+//             compressionLevel = 'medium';
+//         } else {
+//             compressionLevel = 'heavy';
+//         }
+
+//         // calculate dimensions while maintaining aspect ratio
+//         const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
+
+//         // process the video
+//         await convertVideo(inputPath, outputPath, width, height, videoInfo.duration);
+
+//         return { success: true, outputPath };
+//     } catch (error) {
+//         return { success: false, error: error.message };
+//     }
+// });
 
 // get video information 
 function getVideoInfo(filePath) {

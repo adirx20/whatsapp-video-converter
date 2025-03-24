@@ -1,0 +1,20 @@
+.drag-drop-zone {
+    border: 2px dashed #aaa;
+    border-radius: 5px;
+    padding: 20px;
+    text-align: center;
+    transition: background-color .3s ease;
+    margin: 20px 0;
+    color: #555;
+    font-size: 16px;
+    background-color: #fff;
+    cursor: pointer;
+}
+
+.drag-drop-zone.drag-over {
+    background-color: #f0f0f0;
+}
+
+.drag-drop-zone.accepted {
+    background-color: #d4edda;
+}
