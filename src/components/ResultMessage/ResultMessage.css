@@ -1,27 +1,27 @@
 .result-message {
-    padding: 1rem;
-    border-radius: .25rem;
-    margin-top: 1rem;
+    margin: 10px 0;
+    padding: 10px 15px;
+    border-radius: 4px;
+    font-size: 14px;
 }
 
-.result-message_success {
-    background-color: #e7f3ec;
+.result-message--success {
+    background-color: #d4edda;
     border: 1px solid #c3e6cb;
     color: #155724;
 }
 
-.result-message_error {
-    background-color: #f8d7da;
+.result-message--error {
+    background-color: #f8e7da;
     border: 1px solid #f5c6cb;
     color: #721c24;
 }
 
-.result-message_title {
-    margin: 0 0 .5rem 0;
-    font-size: 1.125rem;
+.result-message__title {
+    margin: 0 0 5px 0;
+    font-weight: bold;
 }
 
-.result-message_content {
+.result-message__content {
     margin: 0;
-    word-break: break-all;
 }

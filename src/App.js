@@ -17,7 +17,6 @@ function App() {
     // set up event listeners for conversion progress
     if (window.electron) {
       window.electron.onConversionStart(() => setProgress(0));
-
       window.electron.onConversionProgress((event, percent) => setProgress(percent));
     }
     // cleanup event listeners
@@ -28,35 +27,39 @@ function App() {
     };
   }, []);
 
-  const handleSelectFiles = async () => {
-    if (window.electron) {
-      const filePaths = await window.electron.selectFiles();
-      if (filePaths && filePaths.length) {
-        setInputPaths(filePaths);
-      }
-    }
-  };
-
+  // Called when files are dropped via Drag & Drop
   const handleDropFiles = (files) => {
-    console.log('Files dropped:', files);
+    console.log('[App] Files dropped:', files);
     setInputPaths(files);
   };
 
-  const handleSelectOutputDir = async () => {
+  // Called when user clicks to browse for input files
+  const handleSelectFiles = async () => {
     if (window.electron) {
-      const dirPath = await window.electron.selectOutputDir();
+      const files = await window.electron.selectFiles();
 
-      if (dirPath) {
-        setOutputDir(dirPath);
-        localStorage.setItem('lastOutputDir', dirPath);
+      if (files && files.length) {
+        setInputPaths(files);
       }
     }
   };
 
+  // Called when user selects an output directory
+  const handleSelectOutputDir = async () => {
+    if (window.electron) {
+      const dir = await window.electron.selectOutputDir();
+
+      if (dir) {
+        setOutputDir(dir);
+        localStorage.setItem('lastOutputDir', dir);
+      }
+    }
+  };
+
+  // Called when user clicks the Convert button
   const handleConvert = async () => {
     if (!inputPaths.length || !outputDir) return;
 
-    // reset states
     setResults([]);
     setError(null);
     setConverting(true);
@@ -64,14 +67,10 @@ function App() {
     try {
       const result = await window.electron.processVideo({
         inputPath: inputPaths,
-        outputDir
+        outputDir: outputDir
       });
 
-      if (result.success) {
-        setResults(result);
-      } else {
-        setError(result.error);
-      }
+      setResults(result);
     } catch (err) {
       setError(err.message || 'An unknown error occurred');
     } finally {
@@ -80,17 +79,15 @@ function App() {
   };
 
   return (
-    <div className='App'>
-      <header className='App-header'>
-        <h1>WhatsApp Video Converter</h1>
+    <div className='app'>
+      <header className='app__header'>
+        <h1 className='app__title'>WhatsApp Video Converter</h1>
       </header>
-      <main className='App-main'>
-
+      <main className='app__main'>
         <DragDropZone
           onFilesSelected={handleDropFiles}
           resetAccepted={false}
         />
-
         <FileSelector
           className='file-selector'
           title='Input Videos'
@@ -98,7 +95,6 @@ function App() {
           placeholder='Select a video files'
           onClick={handleSelectFiles}
         />
-
         <FileSelector
           className='file-selector'
           title='Output Directory'
@@ -108,7 +104,7 @@ function App() {
         />
 
         <button
-          className='convert-button'
+          className='app__button app__button--convert'
           onClick={handleConvert}
           disabled={!inputPaths.length || !outputDir || converting}
         >
@@ -116,7 +112,7 @@ function App() {
         </button>
 
         {converting && <ProgressBar progress={progress} />}
-
+       
         {
           results.length > 0 &&
           results.map((result, index) => (

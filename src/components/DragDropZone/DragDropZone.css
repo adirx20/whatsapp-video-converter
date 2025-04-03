@@ -11,10 +11,10 @@
     cursor: pointer;
 }
 
-.drag-drop-zone.drag-over {
+.drag-drop-zone--over {
     background-color: #f0f0f0;
 }
 
-.drag-drop-zone.accepted {
+.drag-drop-zone--accepted {
     background-color: #d4edda;
 }

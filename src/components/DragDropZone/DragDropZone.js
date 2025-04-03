@@ -1,79 +1,70 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { loadFilesFromEvent } from '../../utils/fileLoader';
 import './DragDropZone.css';
 
 export const DragDropZone = ({ onFilesSelected, resetAccepted = false }) => {
-    const [dragOver, setDragOver] = useState(false);
-    const [accepted, setAccepted] = useState(false);
+    const [isDragOver, setIsDragOver] = useState(false);
+    const [isAccepted, setIsAccepted] = useState(false);
 
     const fileInputRef = useRef(null);
 
     useEffect(() => {
         if (resetAccepted) {
-            console.log('[DragDropZone] Reset accepted state triggered'); // ✅ DEBUG
-            setAccepted(false);
+            console.log('[DragDropZone] Reset accepted state triggered');
+
+            setIsAccepted(false);
         }
     }, [resetAccepted])
 
+    const handleDragEnter = useCallback((e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+    }, [])
+
     const handleDragOver = useCallback((e) => {
         e.preventDefault();
-        console.log('[DragDropZone] Drag over'); // ✅ DEBUG
 
-        setDragOver(true);
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+            e.dataTransfer.effectAllowed = 'copy';
+        }
+        setIsDragOver(true);
     }, []);
 
     const handleDragLeave = useCallback((e) => {
         e.preventDefault();
-        console.log('[DragDropZone] Drag leave'); // ✅ DEBUG
-
-        setDragOver(false);
+        setIsDragOver(false);
     }, []);
 
     const handleDrop = useCallback((e) => {
         e.preventDefault();
-        console.log('[DragDropZone] Drop event fired'); // ✅ DEBUG
+        console.log('[DragDropZone] Drop event fired');
 
-        setDragOver(false);
-        setAccepted(true);
+        setIsDragOver(false);
+        setIsAccepted(true);
 
-        let files = Array.from(e.dataTransfer.files);
-        console.log('[DragDropZone] Files dropped (from files):', files); // ✅ DEBUG: show files array
-        // extract file paths
-        let filePaths = files.map((file) => file.path).filter(p => !!p);
-        // if filePaths is empty, try using text/uri-list as fallback
-        if (filePaths.length === 0) {
-            let items = Array.from(e.dataTransfer.items);
-            console.log('[DragDropZone] DataTransfer items:', items);
-
-            filePaths = items.map(item => {
-                if (item.kind === 'file') {
-                    const file = item.getAsFile();
-                    // check for file.path if available
-                    return file && file.path ? file.path : null;
-                }
-
-                return null;
-            }).filter(p => p);
-        }
-
-        console.log('[DragDropZone] Extracted file paths:', filePaths); // ✅ DEBUG
-
-        if (onFilesSelected) {
-            onFilesSelected(filePaths);
+        if (window.electron && window.electron.getDroppedFilePaths) {
+            setTimeout(() => {
+                window.electron.getDroppedFilePaths().then((paths) => {
+                    console.log('[DragDropZone] Paths from fallback:', paths);
+                    if (paths && paths.length > 0) {
+                        onFilesSelected(paths);
+                    }
+                });
+            }, 150);
         }
     }, [onFilesSelected]);
 
-    const handleClick = () => {
+    const handleClick = (e) => {
+        if (e.detail === 0) return;
+
         console.log('[DragDropZone] Clicked'); // ✅ DEBUG
-
+        // If available, use Electron's native file dialog
         if (window.electron && window.electron.selectFiles) {
-            window.electron.selectFiles().then(filePaths => {
-                console.log('[DragDropZone] Files from native dialog:', filePaths);
-                if (filePaths && filePaths.length) {
-                    if (onFilesSelected) {
-                        onFilesSelected(filePaths);
-                    }
-
-                    setAccepted(true);
+            window.electron.selectFiles().then((files) => {
+                if (files && files.length) {
+                    onFilesSelected(files);
+                    setIsAccepted(true);
                 }
             });
         } else if (fileInputRef.current) {
@@ -82,30 +73,29 @@ export const DragDropZone = ({ onFilesSelected, resetAccepted = false }) => {
     };
 
     const handleInputChange = (e) => {
-        console.log('[DragDropZone] Input change event'); // ✅ DEBUG
-
         const files = Array.from(e.target.files);
         let filePaths = files.map(file => file.path).filter(p => !!p);
         console.log('[DragDropZone] Files selected from input:', filePaths); // ✅ DEBUG
 
-
         if (onFilesSelected) {
             onFilesSelected(filePaths);
         }
-
-        setAccepted(true);
+        setIsAccepted(true);
     }
 
     return (
         <div
-            className={`drag-drop-zone ${dragOver ? 'drag-over' : ''} ${accepted ? 'accepted' : ''}`}
+            className={`drag-drop-zone drag-drop-zone--${isDragOver ? 'over' : 'default'} ${isAccepted ? 'drag-drop-zone--accepted' : ''}`}
+            onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onClick={handleClick}
+            dropzone='copy'
         >
-            <p>Drag & Drop video files here or click to browse</p>
+            <p className='drag-drop-zone__text'>Drag & Drop video files here or click to browse</p>
             <input
+                className='drag-drop-zone__input'
                 type='file'
                 multiple
                 ref={fileInputRef}

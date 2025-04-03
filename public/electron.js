@@ -6,13 +6,15 @@ const ffmpegPath = require('ffmpeg-static');
 const ffprobePath = require('ffprobe-static').path;
 const isDev = require('electron-is-dev');
 
-// set ffmpeg path
+// set ffmpeg and ffprobe paths
 ffmpeg.setFfmpegPath(ffmpegPath);
-// set ffprobe path
 ffmpeg.setFfprobePath(ffprobePath);
 
+// import video utilities
+const { getVideoInfo, calculateDimensions, getOutputOptions, convertVideo } = require('../src/utils/videoUtils');
+
 // whatsapp video requirements
-const WHATSAPP_MAX_SIZE = 16 * 1024 * 1024;         // 16MB
+const WHATSAPP_MAX_SIZE = 16 * 1024 * 1024;     // 16MB
 const WHATSAPP_VIDEO_WIDTH = 640;
 const WHATSAPP_VIDEO_HEIGHT = 360;
 
@@ -25,6 +27,7 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: false,
             preload: path.join(__dirname, 'preload.js')
         }
     });
@@ -77,6 +80,18 @@ ipcMain.handle('select-output-dir', async () => {
     return filePaths[0];
 });
 
+// handle dropped files
+ipcMain.handle('get-dropped-files', async () => {
+    const result = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+            { name: 'Videos', extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm'] }
+        ]
+    });
+
+    return result.canceled ? [] : result.filePaths;
+});
+
 // process video
 ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
     // Check if inputPath is an array to support batch conversion
@@ -93,9 +108,9 @@ ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
                 // Get video info for this file
                 const videoInfo = await getVideoInfo(singlePath);
                 // Calculate dimensions while maintaining aspect ratio
-                const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
-
-                await convertVideo(singlePath, outputPath, width, height, videoInfo.duration);
+                const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height, WHATSAPP_VIDEO_WIDTH, WHATSAPP_VIDEO_HEIGHT);
+                // convert the video
+                await convertVideo(singlePath, outputPath, width, height, videoInfo.duration, mainWindow);
                 results.push({ success: true, outputPath });
             } catch (error) {
                 results.push({ success: false, error: error.message });
@@ -112,8 +127,8 @@ ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
 
         try {
             const videoInfo = await getVideoInfo(inputPath);
-            const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
-            await convertVideo(inputPath, outputPath, width, height, videoInfo.duration);
+            const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height, WHATSAPP_VIDEO_WIDTH, WHATSAPP_VIDEO_HEIGHT);
+            await convertVideo(inputPath, outputPath, width, height, videoInfo.duration, mainWindow);
             return { success: true, outputPath };
         } catch (error) {
             return { success: false, error: error.message };
@@ -121,157 +136,117 @@ ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
     }
 });
 
-// OLD PROCESS VIDEO
+// // get video information 
+// function getVideoInfo(filePath) {
+//     return new Promise((resolve, reject) => {
+//         console.log('DEBUG video path:', filePath);
+//         ffmpeg.ffprobe(filePath, (err, metadata) => {
+//             if (err) {
+//                 reject(err);
+//                 return;
+//             }
 
-// // process video
-// ipcMain.handle('process-video', async (event, { inputPath, outputDir }) => {
-//     const fileName = path.basename(inputPath, path.extname(inputPath));
-//     const outputPath = path.join(outputDir, `${fileName}_whatsapp.mp4`);
+//             const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
 
-//     console.log('[PROCESS] input:', inputPath);
-//     console.log('[PROCESS] output:', outputPath);
+//             if (!videoStream) {
+//                 reject(new Error('No video stream found'));
+//                 return;
+//             }
 
-//     try {
-//         // get video information
-//         const videoInfo = await getVideoInfo(inputPath);
+//             const rawDuration = metadata.format.duration;
 
-//         // set compression level according to video size
-//         const inputSizeMB = videoInfo.size / (1024 * 1024);
-//         console.log('[DEBUG] Input file size (MB):', inputSizeMB);
+//             console.log('[DEBUG] Raw duration:', rawDuration);
 
-//         let compressionLevel;
+//             const parsedDuration = rawDuration !== undefined ? Number(rawDuration) : null;
 
-//         if (inputSizeMB <= 10) {
-//             compressionLevel = 'light';
-//         } else if (inputSizeMB <= 30) {
-//             compressionLevel = 'medium';
-//         } else {
-//             compressionLevel = 'heavy';
-//         }
+//             console.log('[DEBUG] Parsed duration:', parsedDuration);
 
-//         // calculate dimensions while maintaining aspect ratio
-//         const { width, height } = calculateDimensions(videoInfo.width, videoInfo.height);
+//             resolve({
+//                 width: videoStream.width,
+//                 height: videoStream.height,
+//                 duration: isNaN(parsedDuration) ? 1 : parsedDuration,
+//                 size: metadata.format.size
+//             });
+//         });
+//     });
+// }
 
-//         // process the video
-//         await convertVideo(inputPath, outputPath, width, height, videoInfo.duration);
+// // calculate dimmensions while maintaining aspect ratio
+// function calculateDimensions(originalWidth, originalHeight) {
+//     const aspectRatio = originalWidth / originalHeight;
 
-//         return { success: true, outputPath };
-//     } catch (error) {
-//         return { success: false, error: error.message };
+//     // if already smaller than target, keep original dimensions
+//     if (originalWidth <= WHATSAPP_VIDEO_WIDTH && originalHeight <= WHATSAPP_VIDEO_HEIGHT) {
+//         return { width: originalWidth, height: originalHeight };
 //     }
-// });
 
-// get video information 
-function getVideoInfo(filePath) {
-    return new Promise((resolve, reject) => {
-        console.log('DEBUG video path:', filePath);
-        ffmpeg.ffprobe(filePath, (err, metadata) => {
-            if (err) {
-                reject(err);
-                return;
-            }
+//     // calculate based on aspect ratio
+//     let width = WHATSAPP_VIDEO_WIDTH;
+//     let height = Math.round(width / aspectRatio);
 
-            const videoStream = metadata.streams.find(stream => stream.codec_type === 'video');
+//     if (height > WHATSAPP_VIDEO_HEIGHT) {
+//         height = WHATSAPP_VIDEO_HEIGHT;
+//         width = Math.round(height * aspectRatio);
+//     }
 
-            if (!videoStream) {
-                reject(new Error('No video stream found'));
-                return;
-            }
+//     // return a number divisible by 2 (libx264 requirements)
+//     const even = (n) => n % 2 === 0 ? n : n - 1;
 
-            const rawDuration = metadata.format.duration;
+//     return { width: even(width), height: even(height) };
 
-            console.log('[DEBUG] Raw duration:', rawDuration);
+// }
 
-            const parsedDuration = rawDuration !== undefined ? Number(rawDuration) : null;
+// // get output options
+// function getOutputOptions(duration, width, height) {
+//     const targetSizeMB = 16;
+//     const targetSizeBytes = targetSizeMB * 1024 * 1024;
+//     const safeDuration = Math.max(1, duration || 1);
+//     const bitrate = Math.floor((targetSizeBytes * 8) / safeDuration / 1000);
+//     const clampedBitrate = Math.max(300, Math.min(bitrate, 6000)); // stay in range
 
-            console.log('[DEBUG] Parsed duration:', parsedDuration);
+//     console.log('[DEBUG] Duration:', duration);
 
-            resolve({
-                width: videoStream.width,
-                height: videoStream.height,
-                duration: isNaN(parsedDuration) ? 1 : parsedDuration,
-                size: metadata.format.size
-            });
-        });
-    });
-}
+//     const options = [
+//         '-c:v libx264',
+//         '-preset veryfast',
+//         `-b:v ${clampedBitrate}k`,
+//         '-c:a aac',
+//         '-b:a 128k',
+//         `-vf scale=${width}:${height}`
+//     ];
 
-// calculate dimmensions while maintaining aspect ratio
-function calculateDimensions(originalWidth, originalHeight) {
-    const aspectRatio = originalWidth / originalHeight;
+//     console.log('[OPTIONS]', options);
+//     return options;
+// }
 
-    // if already smaller than target, keep original dimensions
-    if (originalWidth <= WHATSAPP_VIDEO_WIDTH && originalHeight <= WHATSAPP_VIDEO_HEIGHT) {
-        return { width: originalWidth, height: originalHeight };
-    }
+// // convert video
+// function convertVideo(inputPath, outputPath, width, height, duration) {
+//     return new Promise((resolve, reject) => {
 
-    // calculate based on aspect ratio
-    let width = WHATSAPP_VIDEO_WIDTH;
-    let height = Math.round(width / aspectRatio);
+//         const outputOpts = getOutputOptions(duration, width, height);
 
-    if (height > WHATSAPP_VIDEO_HEIGHT) {
-        height = WHATSAPP_VIDEO_HEIGHT;
-        width = Math.round(height * aspectRatio);
-    }
+//         ffmpeg(inputPath)
+//             .addOption('-loglevel', 'verbose')
+//             .outputOptions(outputOpts)
+//             .format('mp4')
+//             .on('start', () => {
+//                 mainWindow.webContents.send('conversion-start');
+//             })
+//             .on('progress', (progress) => {
+//                 mainWindow.webContents.send('conversion-progress', progress.percent);
+//             })
+//             .on('stderr', (line) => {
+//                 console.log('[FFMPEG]', line);
+//             })
+//             .on('end', () => {
+//                 resolve();
+//             })
+//             .on('error', (err) => {
+//                 console.error('[FFMPEG ERROR]', err.message);
+//                 console.error('[FFMPEG STACK]', err.stack);
 
-    // return a number divisible by 2 (libx264 requirements)
-    const even = (n) => n % 2 === 0 ? n : n - 1;
-
-    return { width: even(width), height: even(height) };
-
-}
-
-// get output options
-function getOutputOptions(duration, width, height) {
-    const targetSizeMB = 16;
-    const targetSizeBytes = targetSizeMB * 1024 * 1024;
-    const safeDuration = Math.max(1, duration || 1);
-    const bitrate = Math.floor((targetSizeBytes * 8) / safeDuration / 1000);
-    const clampedBitrate = Math.max(300, Math.min(bitrate, 6000)); // stay in range
-
-    console.log('[DEBUG] Duration:', duration);
-
-    const options = [
-        '-c:v libx264',
-        '-preset veryfast',
-        `-b:v ${clampedBitrate}k`,
-        '-c:a aac',
-        '-b:a 128k',
-        `-vf scale=${width}:${height}`
-    ];
-
-    console.log('[OPTIONS]', options);
-    return options;
-}
-
-// convert video
-function convertVideo(inputPath, outputPath, width, height, duration) {
-    return new Promise((resolve, reject) => {
-
-        const outputOpts = getOutputOptions(duration, width, height);
-
-        ffmpeg(inputPath)
-            .addOption('-loglevel', 'verbose')
-            .outputOptions(outputOpts)
-            .format('mp4')
-            .on('start', () => {
-                mainWindow.webContents.send('conversion-start');
-            })
-            .on('progress', (progress) => {
-                mainWindow.webContents.send('conversion-progress', progress.percent);
-            })
-            .on('stderr', (line) => {
-                console.log('[FFMPEG]', line);
-            })
-            .on('end', () => {
-                resolve();
-            })
-            .on('error', (err) => {
-                console.error('[FFMPEG ERROR]', err.message);
-                console.error('[FFMPEG STACK]', err.stack);
-
-                reject(new Error(`Conversion failed: ${err.message}`));
-            })
-            .save(outputPath);
-    });
-}
+//                 reject(new Error(`Conversion failed: ${err.message}`));
+//             })
+//             .save(outputPath);
+//     });
+// }
